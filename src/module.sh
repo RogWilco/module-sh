@@ -3,6 +3,15 @@
 module::route() {
   local module_name
 
+  # Only show debug information if MODULE_DEBUG is set
+  if [[ -n "${MODULE_DEBUG}" ]]; then
+    echo "Call stack:"
+    for ((i = 0; i < ${#FUNCNAME[@]}; i++)); do
+        echo "  [$i] ${FUNCNAME[$i]} (called from ${BASH_SOURCE[$i+1]}:${BASH_LINENO[$i]})"
+    done
+    echo "Function called with arguments: $*"
+  fi
+
   # If parent script is being sourced, do nothing
   if [[ "$(module::_check_execution_context)" == "sourced" ]]; then
     return
@@ -30,6 +39,16 @@ module::route() {
   exit 1
 }
 
+module::_init() {
+  MODULE_ARGS=("$@")
+
+  trap 'module::_trap' EXIT
+}
+
+module::_trap() {
+  module::route "${MODULE_ARGS[@]}"
+}
+
 module::_get_module_name() {
   filename=$(basename "$1")
   echo "${filename%.*}"
@@ -51,4 +70,4 @@ module::_check_execution_context() {
     fi
 }
 
-module::route "$@"
+module::_init "$@"
