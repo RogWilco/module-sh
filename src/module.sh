@@ -33,20 +33,8 @@ module() {
 module::_route() {
   local module_name
 
-  module::_debug "Function called with arguments: ${MODULE_ARGS[*]}"
-
-  if [[ "${MODULE_DEBUG:-0}" -eq 0 ]]; then
-    local call_stack="Call stack:"
-    for ((i = 0; i < ${#FUNCNAME[@]}; i++)); do
-        if [[ -n ${BASH_SOURCE[$i+1]:-} ]]; then
-            call_stack+="\n  [$i] ${FUNCNAME[$i]} (called from ${BASH_SOURCE[$i+1]}:${BASH_LINENO[$i]})"
-        else
-            call_stack+="\n  [$i] ${FUNCNAME[$i]} (called from unknown location)"
-        fi
-    done
-
-    module::_debug "$call_stack"
-  fi
+  module::_debug "Routing with arguments: ${MODULE_ARGS[*]}"
+  module::_debug "$(module::_get_stack_trace)"
 
   # <caller> is being sourced, skip routing
   if [[ "$(module::_check_context)" == "sourced" ]]; then
@@ -93,8 +81,60 @@ module::_check_context() {
 
 #@/private prints debug information if MODULE_DEBUG is set
 module::_debug() {
-  [[ "${MODULE_DEBUG:-0}" -eq 0 ]] && return
-  echo "$*"
+  [[ "${MODULE_DEBUG:-0}" -ne 0 ]] && echo -e "$1" >&2
+}
+
+#@/private prints a stack trace
+# @arg [-d | --depth <number>] number of frames to skip from the top (default: 1)
+module::_get_stack_trace() {
+  local call_stack=""
+  local depth_mask=1
+  local -a frames=()
+  local gray=$'\e[90m'
+  local reset=$'\e[0m'
+
+  # Parse optional depth argument
+  if [[ "${1:-}" == "-d" || "${1:-}" == "--depth" ]]; then
+    if [[ -n "${2:-}" ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+      depth_mask="$2"
+      shift 2
+    else
+      echo "Error: Depth argument must be a number" >&2
+      return 1
+    fi
+  fi
+
+  for ((i = depth_mask; i < ${#FUNCNAME[@]}; i++)); do
+    local func_name="${FUNCNAME[$i]}"
+    local source_file="${BASH_SOURCE[$i]:-}"
+    local line_num="${BASH_LINENO[$((i-1))]:-}"
+
+    if [[ -z "$func_name" ]]; then
+      func_name="<main>"
+    fi
+
+    if [[ "$func_name" =~ ^module:: ]]; then
+      source_file="${BASH_SOURCE[0]}"
+    elif [[ -z "$source_file" ]]; then
+      source_file="<unknown>"
+    fi
+
+    if [[ -n "$line_num" ]]; then
+      frames+=("  [$((i-depth_mask))] $func_name ${gray}($source_file:$line_num)${reset}")
+    else
+      frames+=("  [$((i-depth_mask))] $func_name ${gray}($source_file)${reset}")
+    fi
+  done
+
+  # Print frames in reverse order
+  for ((i = ${#frames[@]} - 1; i >= 0; i--)); do
+    if [[ -n "$call_stack" ]]; then
+      call_stack+="\n"
+    fi
+    call_stack+="${frames[$i]}"
+  done
+
+  echo "$call_stack"
 }
 
 #@/private extracts the module name from the <caller> script
