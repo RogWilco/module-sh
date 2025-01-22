@@ -42,46 +42,65 @@ module::_route() {
   fi
 
   # <caller> is being executed, apply routing
-  module_name=$(module::_get_module_name "$0")
+  module_name=$(module::_get_module_name)
+  module::_debug "Module name: $module_name"
 
   # Route: <caller>::$1()
-  if [[ -n "${1:-}" ]] && declare -F "$module_name::$1" > /dev/null; then
-    func="$module_name::$1"
-    shift
-    "$func" "${MODULE_ARGS[@]}"
-    return
+  if [[ ${#MODULE_ARGS[@]} -gt 0 ]]; then
+    local target_func="$module_name::${MODULE_ARGS[0]}"
+    module::_debug "Looking for function: $target_func"
+    if declare -F "$target_func" > /dev/null; then
+      module::_debug "Found function: $target_func"
+      "${target_func}" "${MODULE_ARGS[@]:1}"
+      return
+    fi
   fi
 
   # Route: <caller>()
+  module::_debug "Looking for function: $module_name"
+
   if declare -F "$module_name" > /dev/null; then
+    module::_debug "Found function: $module_name"
     "$module_name" "${MODULE_ARGS[@]}"
     return
   fi
 
   # Routing failed, exit with error
-  echo "Error: Function '$module_name' not found."
+  module::_error "Function '$module_name' not found."
   exit 1
 }
 
 #@/private checks the execution context of the <caller> script
 module::_check_context() {
-    # If module.sh is run directly, treat it as executed
-    if [[ "${#BASH_SOURCE[@]}" == 2 ]]; then
-        echo "executed"
-        exit 0
-    fi
+    # The last entry in BASH_SOURCE is the original script
+    local original_script="${BASH_SOURCE[${#BASH_SOURCE[@]}-1]}"
 
-    # Check if the calling script is being executed or sourced
-    if [[ "${BASH_SOURCE[3]:-}" == "$0" ]]; then
+    # $0 is the script that's actually being run
+    local running_script="$0"
+
+    module::_debug "Original script: $original_script"
+    module::_debug "Running script: $running_script"
+
+    # If the original script is being run directly, it's executed
+    # Otherwise it's being sourced by something else
+    if [[ "$(basename "$original_script")" == "$(basename "$running_script")" ]]; then
         echo "executed"
     else
         echo "sourced"
     fi
 }
 
-#@/private prints debug information if MODULE_DEBUG is set
+#@/private prints debug information to stdout if MODULE_DEBUG is set
 module::_debug() {
-  [[ "${MODULE_DEBUG:-0}" -ne 0 ]] && echo -e "$1" >&2
+  # Only output if MODULE_DEBUG is non-zero
+  if [[ "${MODULE_DEBUG:-0}" -ne 0 ]]; then
+    echo -e "$1"
+  fi
+}
+
+#@/private prints error messages to stderr
+module::_error() {
+  echo -e "Error: $1" >&2
 }
 
 #@/private prints a stack trace
@@ -99,9 +118,14 @@ module::_get_stack_trace() {
       depth_mask="$2"
       shift 2
     else
-      echo "Error: Depth argument must be a number" >&2
+      module::_error "Depth argument must be a number"
       return 1
     fi
+  fi
+
+  # If no function call stack, return empty
+  if [[ -z "${FUNCNAME[*]:-}" ]]; then
+    return 0
   fi
 
   for ((i = depth_mask; i < ${#FUNCNAME[@]}; i++)); do
@@ -139,7 +163,7 @@ module::_get_stack_trace() {
 
 #@/private extracts the module name from the <caller> script
 module::_get_module_name() {
-  filename=$(basename "$1")
+  filename=$(basename "$0")
   echo "${filename%.*}"
 }
 
