@@ -1,4 +1,4 @@
-.PHONY: default test install
+.PHONY: default install format lint test
 
 default: test
 
@@ -15,7 +15,11 @@ install:
 	cp ./src/module.sh "$$target_dir/module"; \
 	echo "Successfully installed to: $$target_dir"
 
+format:
+	@find ./src -type f -name "*.sh" -exec shfmt -d {} \;
+
+lint:
+	@find ./src -type f -name "*.sh" -exec shellcheck {} \;
+
 test:
-	@for file in ./src/*.test.sh; do \
-		bash "$$file"; \
-	done
+	@find ./src -type f -name "*.test.sh" -exec bash {} \;
